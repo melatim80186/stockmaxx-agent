@@ -1,0 +1,9 @@
+node_modules/
+.env
+.agent-wallet.json
+state.json
+agent/state.json
+contracts/deployments/
+contracts/broadcast/
+contracts/cache/
+contracts/out/

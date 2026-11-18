@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StockMaxx Agent — Autonomous Tokenized-Stock Agent on Base</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 960px; margin: 0 auto; padding: 24px; color: #111; background: #fff; }
+  h1 { font-size: 1.6rem; margin-bottom: 0; }
+  .sub { color: #555; margin-top: 4px; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .8rem; font-weight: 600; }
+  .live { background: #dcfce7; color: #166534; } .demo { background: #fef3c7; color: #92400e; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; font-size: .9rem; }
+  th { background: #f5f5f5; }
+  .buy { color: #15803d; font-weight: 700; } .sell { color: #b91c1c; font-weight: 700; } .hold { color: #666; }
+  code { background: #f5f5f5; padding: 1px 5px; border-radius: 4px; font-size: .85rem; word-break: break-all; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 16px 0; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 12px; }
+  .card .big { font-size: 1.4rem; font-weight: 700; }
+  .card .lbl { color: #555; font-size: .8rem; }
+  .warn { background: #fef3c7; border: 1px solid #f59e0b; padding: 10px; border-radius: 8px; }
+  #err { color: #b91c1c; }
+</style>
+</head>
+<body>
+<h1>StockMaxx Agent</h1>
+<p class="sub">Autonomous agent trading tokenized equities on Base — <span id="mode" class="badge live">…</span> · chain <span id="chain">…</span></p>
+<div id="demowarn" class="warn" style="display:none">DEMO MODE — prices are a fixed synthetic series, trades run on a local Anvil chain. Not real market data.</div>
+<p id="err"></p>
+
+<h2>Vault</h2>
+<div class="grid">
+  <div class="card"><div class="lbl">USDC balance</div><div class="big" id="usdc">…</div></div>
+  <div class="card"><div class="lbl">Trades today</div><div class="big" id="trades">…</div></div>
+  <div class="card"><div class="lbl">Max trade / day cap</div><div class="big" id="limits">…</div></div>
+  <div class="card"><div class="lbl">Operator (agent)</div><div style="word-break:break-all"><code id="operator">…</code></div></div>
+</div>
+<p>Vault <code id="vaultAddr">…</code> · Exchange <code id="exAddr">…</code> · Oracle <code id="oracleAddr">…</code></p>
+
+<h2>Positions</h2>
+<table><thead><tr><th>Symbol</th><th>Shares</th><th>Position (USDC)</th><th>Entry</th><th>Last price</th><th>P&amp;L</th></tr></thead><tbody id="positions"></tbody></table>
+
+<h2>Decisions (on-chain log)</h2>
+<table><thead><tr><th>Time</th><th>Symbol</th><th>Action</th><th>Price</th><th>Conf.</th><th>Reason</th><th>Tx</th></tr></thead><tbody id="decisions"></tbody></table>
+
+<h2>Trades</h2>
+<table><thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Size</th><th>Price</th><th>Tx</th></tr></thead><tbody id="trades"></tbody></table>
+
+<p class="sub">Every decision — including HOLD — is logged on-chain via <code>AgentVault.logDecision</code>. Verify on <a id="explorer" href="#" target="_blank">the block explorer</a>. Testnet tokenized stocks are mirrors of the real Coinbase B20 tokens, not the real tokens.</p>
+
+<script>
+async function load() {
+  try {
+    const r = await fetch('/api/status');
+    const s = await r.json();
+    document.getElementById('mode').textContent = s.mode.toUpperCase();
+    document.getElementById('mode').className = 'badge ' + s.mode;
+    document.getElementById('chain').textContent = s.chainId;
+    document.getElementById('demowarn').style.display = s.mode === 'demo' ? 'block' : 'none';
+    document.getElementById('explorer').href = s.explorer || '#';
+    document.getElementById('vaultAddr').textContent = s.addresses.vault || '—';
+    document.getElementById('exAddr').textContent = s.addresses.exchange || '—';
+    document.getElementById('oracleAddr').textContent = s.addresses.oracle || '—';
+    document.getElementById('operator').textContent = s.operator || '—';
+    const oc = s.onchain;
+    document.getElementById('err').textContent = s.onchainError ? ('On-chain read failed: ' + s.onchainError) : '';
+    if (oc) {
+      document.getElementById('usdc').textContent = '$' + oc.usdcBalance.toFixed(2);
+      document.getElementById('trades').textContent = oc.tradesToday + ' / ' + oc.maxTradesPerDay;
+      document.getElementById('limits').textContent = '$' + oc.maxTradeUsd + ' / $' + oc.maxPositionUsd;
+    }
+    const st = s.state || {};
+    const lastPrice = {};
+    for (const [sym, hist] of Object.entries(st.history || {})) lastPrice[sym] = hist[hist.length - 1];
+    const posRows = Object.entries(st.positions || {}).map(([sym, p]) => {
+      const on = oc?.positions?.[sym];
+      const lp = lastPrice[sym];
+      const pnl = (p.size > 0 && p.entryPrice && lp) ? ((lp - p.entryPrice) / p.entryPrice * 100) : null;
+      return `<tr><td>${sym}c</td><td>${(on?.stockBalanceUi ?? p.size ?? 0).toFixed(4)}</td><td>$${(on?.positionUsd ?? 0).toFixed(2)}</td><td>${p.entryPrice ? '$' + p.entryPrice.toFixed(2) : '—'}</td><td>${lp ? '$' + lp.toFixed(2) : '—'}</td><td>${pnl === null ? '—' : pnl.toFixed(2) + '%'}</td></tr>`;
+    }).join('');
+    document.getElementById('positions').innerHTML = posRows || '<tr><td colspan="6">No positions yet</td></tr>';
+    const txLink = (h) => h && s.explorer ? `<a href="${s.explorer}/tx/${h}" target="_blank">${h.slice(0,10)}…</a>` : (h || '—');
+    document.getElementById('decisions').innerHTML = (st.decisions || []).slice(0, 20).map(d =>
+      `<tr><td>${(d.at || '').slice(11, 19)}</td><td>${d.symbol}</td><td class="${d.action.toLowerCase()}">${d.action}</td><td>$${d.price?.toFixed(2)}</td><td>${(d.confidenceBps / 100).toFixed(0)}%</td><td>${d.reason || ''}</td><td>${txLink(d.tx)}</td></tr>`).join('') || '<tr><td colspan="7">No decisions yet</td></tr>';
+    document.getElementById('trades').innerHTML = (st.trades || []).slice(0, 20).map(t =>
+      `<tr><td>${(t.at || '').slice(11, 19)}</td><td>${t.symbol}</td><td class="${t.side.toLowerCase()}">${t.side}</td><td>${t.side === 'BUY' ? '$' + t.usdc : (t.stock?.toFixed(4) + ' sh')}</td><td>$${t.price?.toFixed(2)}</td><td>${txLink(t.tx)}</td></tr>`).join('') || '<tr><td colspan="6">No trades yet</td></tr>';
+  } catch (e) { document.getElementById('err').textContent = 'Failed to load status: ' + e.message; }
+}
+load(); setInterval(load, 10000);
+</script>
+</body>
+</html>
