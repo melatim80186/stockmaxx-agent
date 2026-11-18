@@ -6,7 +6,7 @@ the quest page). Entry = X post + submission form. Testnet allowed.
 
 ## What is ready (agent side)
 
-- [x] Repo: `melatim80186/stockmaxx-agent` (to be created — see "Push" below)
+- [x] Repo: https://github.com/melatim80186/stockmaxx-agent (public, pushed 2026-11-18; clean-clone verified from scratch: `forge test` 24/24 + `npm test` 11/11, 0 secrets in history)
 - [x] Contracts build + 24/24 Foundry tests pass
 - [x] Agent: 11/11 Node tests pass; local demo end-to-end verified
       (65 on-chain decisions, 3 trades, 0 errors — see `demo/EVIDENCE.md`)
